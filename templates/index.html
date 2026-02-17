@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Drone Telemetry Control Panel</title>
+<script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min"></script>
+
+<style>
+body{margin:0;background:#0f1c2e;font-family:Segoe UI;color:white}
+h2{text-align:center;margin:10px}
+.container{display:flex;padding:15px;gap:15px}
+.plotBox{background:#16263f;padding:10px;border-radius:12px;flex:1}
+.statusBar{display:flex;justify-content:center;gap:20px;margin:10px;flex-wrap:wrap}
+.statusBox{padding:8px 14px;border-radius:8px;font-weight:bold}
+.green{background:#1db954}
+.red{background:#e53935}
+.yellow{background:#fbc02d;color:black}
+.blue{background:#1976d2}
+.tableBox{display:flex;justify-content:center;margin-top:10px}
+table{background:#16263f;border-radius:8px}
+td,th{padding:8px 14px;text-align:center}
+.controlPanel{display:flex;justify-content:center;gap:10px;margin:15px;flex-wrap:wrap}
+.button{padding:10px 20px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px}
+.btnStop{background:#e53935;color:white}
+.btnStop:hover{background:#c62828}
+.btnDebug{background:#1976d2;color:white}
+.btnDebug:hover{background:#1565c0}
+.debugPanel{background:#16263f;border-radius:12px;margin:15px;padding:15px;display:none;max-width:900px;margin-left:auto;margin-right:auto}
+.debugPanel.show{display:block}
+.debugPanel h3{margin-top:0;color:#00bfff}
+.debugGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.debugBox{background:#0f1c2e;padding:10px;border-radius:8px;border-left:3px solid #00bfff}
+.debugLabel{color:#aaa;font-size:12px}
+.debugValue{color:#00ff00;font-weight:bold;font-size:14px}
+.alertList{background:#0f1c2e;padding:10px;border-radius:8px;margin-top:10px;max-height:150px;overflow-y:auto}
+.alertItem{padding:5px;margin:3px 0;border-left:3px solid #e53935;font-size:12px}
+.phaseBadge{display:inline-block;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;margin-left:10px}
+.phaseSafe{background:#1db954;color:white}
+.phaseWarning{background:#fbc02d;color:black}
+.phaseUnsafe{background:#e53935;color:white}
+</style>
+</head>
+
+<body>
+
+<h2>🚁 Drone Telemetry Control Panel <span id="phaseIndicator" class="phaseBadge phaseSafe">SAFE</span></h2>
+
+<div class="controlPanel">
+    <button class="button btnDebug" onclick="toggleDebugPanel()">📊 View Mathematical Details</button>
+    <button class="button btnStop" onclick="stopDrone()">🛑 Emergency Stop</button>
+    <button class="button" style="background:#2e7d32;color:white" onclick="restartMission()">🔁 Restart Mission</button>
+    <button class="button" style="background:#ff9800;color:white" onclick="returnHome()">🏠 Return To Home</button>
+</div>
+
+<div id="debugPanel" class="debugPanel">
+    <h3>Mathematical Debug Panel</h3>
+    <div class="debugGrid">
+        <div class="debugBox">
+            <div class="debugLabel">Actual Position (X)</div>
+            <div class="debugValue" id="dbgActualX">0.00</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Actual Position (Y)</div>
+            <div class="debugValue" id="dbgActualY">0.00</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Actual Position (Z)</div>
+            <div class="debugValue" id="dbgActualZ">0.00</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Predicted Position (X)</div>
+            <div class="debugValue" id="dbgPredX">0.00</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Predicted Position (Y)</div>
+            <div class="debugValue" id="dbgPredY">0.00</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Predicted Position (Z)</div>
+            <div class="debugValue" id="dbgPredZ">0.00</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">GPS Home Position</div>
+            <div class="debugValue" id="dbgGpsHome">Not set</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Distance From Home</div>
+            <div class="debugValue" id="dbgDistHome">N/A</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Mission Destination (ECEF)</div>
+            <div class="debugValue" id="dbgDest">Not set</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Distance To Destination</div>
+            <div class="debugValue" id="dbgDistDest">N/A</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Euclidean Deviation</div>
+            <div class="debugValue" id="dbgDeviation">0.00 m</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Deviation OK (&lt;40m)</div>
+            <div class="debugValue" id="dbgDeviationOk">✓</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Boundary OK (X,Y&lt;500)</div>
+            <div class="debugValue" id="dbgBoundaryOk">✓</div>
+        </div>
+        <div class="debugBox">
+            <div class="debugLabel">Altitude OK (50&lt;Z&lt;300)</div>
+            <div class="debugValue" id="dbgAltitudeOk">✓</div>
+        </div>
+    </div>
+    <div class="alertList" id="alertContainer">
+        <div style="color:#aaa;font-size:12px">No alerts</div>
+    </div>
+</div>
+
+<div style="max-width:1100px;margin:0 auto 10px;color:#ddd;padding:10px">
+    <h3 style="margin:6px 0 4px;color:#00bfff">Mission Geo Reference</h3>
+    <div style="background:#0f1c2e;padding:10px;border-radius:8px;display:flex;gap:20px;flex-wrap:wrap">
+        <div style="min-width:280px">
+            <strong>HOME:</strong>
+            <div>Thapar CSED Department (30.3558° N, 76.3650° E)</div>
+        </div>
+        <div style="min-width:280px">
+            <strong>DESTINATION:</strong>
+            <div>Hostel M, Thapar (30.3581° N, 76.3598° E)</div>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <div class="plotBox">
+        <h3>Top View (Actual vs Predicted)</h3>
+        <div id="mapPlot" style="height:400px;"></div>
+    </div>
+
+    <div class="plotBox">
+        <h3>3D Flight Path Comparison</h3>
+        <div id="plot3d" style="height:400px;"></div>
+    </div>
+</div>
+
+<div class="tableBox">
+<table>
+<tr><th>X</th><th>Y</th><th>Z</th></tr>
+<tr><td id="xVal">0</td><td id="yVal">0</td><td id="zVal">0</td></tr>
+</table>
+</div>
+
+<div class="statusBar">
+<div id="gpsStatus" class="statusBox green">🛰 GPS ACTIVE</div>
+<div id="navMode" class="statusBox green">📡 GPS Navigation</div>
+</div>
+
+<div class="statusBar">
+<div id="timeAlert" class="statusBox green">⏱ Mission Time OK</div>
+<div id="errorAlert" class="statusBox green">📍 Position Error < 50m</div>
+<div id="distanceAlert" class="statusBox green">🛣 Patrol Progress OK</div>
+</div>
+
+<script>
+var socket = io();
+var alerts = [];
+
+// ---------- 2D PLOT ----------
+var mapTrace = {x:[],y:[],mode:'lines',type:'scatter',name:'Actual Path',line:{width:2,color:'#00bfff'}};
+var mapPredicted = {x:[],y:[],mode:'lines',type:'scatter',name:'Predicted Path',line:{width:2,color:'violet',dash:'dash'}};
+var mapDrone = {x:[],y:[],mode:'markers',type:'scatter',marker:{size:10,color:'lime'}};
+
+Plotly.newPlot('mapPlot',[mapTrace,mapPredicted,mapDrone],{
+    paper_bgcolor:'#16263f',
+    plot_bgcolor:'#16263f',
+    font:{color:'white'}
+});
+
+// ---------- 3D PLOT ----------
+var path3d = {x:[],y:[],z:[],mode:'lines',type:'scatter3d',name:'Actual Path',line:{width:3,color:'red'}};
+var predicted3d = {x:[],y:[],z:[],mode:'lines',type:'scatter3d',name:'Predicted Path',line:{width:3,color:'violet',dash:'dash'}};
+var drone3d = {x:[],y:[],z:[],mode:'markers',type:'scatter3d',marker:{size:5,color:'lime'}};
+
+Plotly.newPlot('plot3d',[path3d,predicted3d,drone3d],{
+scene:{
+    xaxis:{gridcolor:'#444',backgroundcolor:'#16263f'},
+    yaxis:{gridcolor:'#444',backgroundcolor:'#16263f'},
+    zaxis:{gridcolor:'#444',backgroundcolor:'#16263f'}
+},
+paper_bgcolor:'#16263f'
+});
+
+// ---------- UI FUNCTIONS ----------
+function toggleDebugPanel(){
+    document.getElementById('debugPanel').classList.toggle('show');
+}
+
+function stopDrone(){
+    socket.emit('stop_drone');
+}
+
+function restartMission(){
+    socket.emit('restart_drone');
+}
+
+function returnHome(){
+    socket.emit('return_home');
+}
+
+function updateAlertList(){
+    let container = document.getElementById('alertContainer');
+    if(alerts.length === 0){
+        container.innerHTML = '<div style="color:#aaa;font-size:12px">No alerts</div>';
+    } else {
+        container.innerHTML = alerts.map(a=>`<div class="alertItem">⚠️ ${a}</div>`).join('');
+    }
+}
+
+// ---------- RECEIVE PREDICTED PATH ----------
+socket.on('predicted_path', function(path){
+    let px=[], py=[], pz=[];
+    path.forEach(p=>{
+        px.push(p.x);
+        py.push(p.y);
+        pz.push(p.z);
+    });
+
+    Plotly.restyle('mapPlot', {x:[px], y:[py]}, [1]);
+    Plotly.restyle('plot3d', {x:[px], y:[py], z:[pz]}, [1]);
+});
+
+// ---------- RECEIVE MATH DEBUG DATA ----------
+socket.on('math_debug', function(data){
+    document.getElementById('dbgActualX').innerText = data.actual.x.toFixed(2);
+    document.getElementById('dbgActualY').innerText = data.actual.y.toFixed(2);
+    document.getElementById('dbgActualZ').innerText = data.actual.z.toFixed(2);
+    
+    document.getElementById('dbgPredX').innerText = data.predicted.x.toFixed(2);
+    document.getElementById('dbgPredY').innerText = data.predicted.y.toFixed(2);
+    document.getElementById('dbgPredZ').innerText = data.predicted.z.toFixed(2);
+    
+    document.getElementById('dbgDeviation').innerText = data.deviation.toFixed(2) + ' m';
+    
+    document.getElementById('dbgDeviationOk').innerText = data.deviation_ok ? '✓ OK' : '✗ FAIL';
+    document.getElementById('dbgDeviationOk').style.color = data.deviation_ok ? '#00ff00' : '#ff6666';
+    
+    document.getElementById('dbgBoundaryOk').innerText = data.boundary_ok ? '✓ OK' : '✗ FAIL';
+    document.getElementById('dbgBoundaryOk').style.color = data.boundary_ok ? '#00ff00' : '#ff6666';
+    
+    document.getElementById('dbgAltitudeOk').innerText = data.altitude_ok ? '✓ OK' : '✗ FAIL';
+    document.getElementById('dbgAltitudeOk').style.color = data.altitude_ok ? '#00ff00' : '#ff6666';
+    
+    // GPS home and distance (may be null)
+    if(data.gps_home_position){
+        let g = data.gps_home_position;
+        document.getElementById('dbgGpsHome').innerText = `${g.x.toFixed(2)}, ${g.y.toFixed(2)}, ${g.z.toFixed(2)}`;
+    } else {
+        document.getElementById('dbgGpsHome').innerText = 'Not set';
+    }
+    if(data.distance_from_home !== undefined && data.distance_from_home !== null){
+        document.getElementById('dbgDistHome').innerText = data.distance_from_home + ' m';
+    } else {
+        document.getElementById('dbgDistHome').innerText = 'N/A';
+    }
+    if(data.mission_destination){
+        let d = data.mission_destination;
+        document.getElementById('dbgDest').innerText = `${d.x.toFixed(2)}, ${d.y.toFixed(2)}, ${d.z.toFixed(2)}`;
+    } else {
+        document.getElementById('dbgDest').innerText = 'Not set';
+    }
+    if(data.distance_to_destination !== undefined && data.distance_to_destination !== null){
+        document.getElementById('dbgDistDest').innerText = data.distance_to_destination + ' m';
+    } else {
+        document.getElementById('dbgDistDest').innerText = 'N/A';
+    }
+});
+
+// ---------- RECEIVE PHASE UPDATES ----------
+socket.on('phase_update', function(data){
+    let badge = document.getElementById('phaseIndicator');
+    badge.innerText = data.phase;
+    badge.className = 'phaseBadge phase' + data.phase;
+});
+
+// ---------- RECEIVE ALERTS ----------
+socket.on('alert', function(data){
+    let timestamp = new Date().toLocaleTimeString();
+    let alertMsg = `[${timestamp}] ${data.type}: ${data.message}`;
+    alerts.unshift(alertMsg);
+    if(alerts.length > 10) alerts.pop();
+    updateAlertList();
+    
+    console.log('ALERT:', alertMsg);
+});
+
+// ---------- RECEIVE MISSION COMPLETE ----------
+socket.on('mission_complete', function(data){
+    console.log('MISSION COMPLETE:', data.message);
+    document.getElementById('phaseIndicator').innerText = 'COMPLETE';
+    document.getElementById('phaseIndicator').className = 'phaseBadge green';
+});
+
+// ---------- NAV STATUS SIM ----------
+let gpsAvailable = true;
+setInterval(()=>{
+    gpsAvailable = !gpsAvailable;
+    document.getElementById("gpsStatus").innerText = gpsAvailable ? "🛰 GPS ACTIVE" : "🚫 GPS LOST / JAMMED";
+    document.getElementById("gpsStatus").className = "statusBox " + (gpsAvailable?"green":"red");
+    document.getElementById("navMode").innerText = gpsAvailable ? "📡 GPS Navigation" : "🤖 Vision-IMU Navigation";
+    document.getElementById("navMode").className = "statusBox " + (gpsAvailable?"green":"yellow");
+},10000);
+
+// ---------- MISSION METRICS ----------
+let missionStart = Date.now();
+let gpsRef = {x:0,y:0,z:0};
+let prev = null;
+let totalDistance = 0;
+
+function updateMissionMetrics(data){
+    let elapsed = (Date.now()-missionStart)/1000;
+    if(elapsed > 600){
+        document.getElementById("timeAlert").innerText="⚠ Mission Time Exceeded";
+        document.getElementById("timeAlert").className="statusBox red";
+    }
+
+    if(prev){
+        let d=Math.sqrt((data.x-prev.x)**2+(data.y-prev.y)**2);
+        totalDistance += d;
+    }
+    prev=data;
+
+    if(totalDistance < 500){
+        document.getElementById("distanceAlert").innerText="🛣 Patrol in Progress";
+        document.getElementById("distanceAlert").className="statusBox yellow";
+    } else {
+        document.getElementById("distanceAlert").innerText="✅ Patrol Distance Achieved";
+        document.getElementById("distanceAlert").className="statusBox green";
+    }
+
+    if(!gpsAvailable){
+        let error=Math.sqrt((data.x-gpsRef.x)**2+(data.y-gpsRef.y)**2);
+        if(error > 50){
+            document.getElementById("errorAlert").innerText="🚨 Position Error > 50m";
+            document.getElementById("errorAlert").className="statusBox red";
+        } else {
+            document.getElementById("errorAlert").innerText="📍 Position Error < 50m";
+            document.getElementById("errorAlert").className="statusBox green";
+        }
+    } else {
+        gpsRef = {x:data.x,y:data.y,z:data.z};
+    }
+}
+
+// ---------- REALTIME POSITION ----------
+socket.on('position',function(data){
+
+    Plotly.extendTraces('mapPlot',{x:[[data.x]],y:[[data.y]]},[0],200);
+    Plotly.restyle('mapPlot',{x:[[data.x]],y:[[data.y]]},[2]);
+
+    Plotly.extendTraces('plot3d',{x:[[data.x]],y:[[data.y]],z:[[data.z]]},[0],200);
+    Plotly.restyle('plot3d',{x:[[data.x]],y:[[data.y]],z:[[data.z]]},[2]);
+
+    document.getElementById("xVal").innerText=data.x.toFixed(2);
+    document.getElementById("yVal").innerText=data.y.toFixed(2);
+    document.getElementById("zVal").innerText=data.z.toFixed(2);
+
+    updateMissionMetrics(data);
+});
+</script>
+
+</body>
+</html>
